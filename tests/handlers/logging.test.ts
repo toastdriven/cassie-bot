@@ -79,6 +79,26 @@ describe("logging listener", () => {
     expect(logged).toContain("bob");
   });
 
+  test("logs the roomId when the message carries one", async () => {
+    const bot = makeBot();
+    registerLogging(bot);
+
+    await bot.onMessage(makeContext({ text: "hi", roomId: "test-kitchen" }));
+
+    const logged = logSpy.mock.calls[0]?.[0] as string;
+    expect(logged).toContain("test-kitchen");
+  });
+
+  test("logs a 'default room' label when roomId is absent", async () => {
+    const bot = makeBot();
+    registerLogging(bot);
+
+    await bot.onMessage(makeContext({ text: "hi" }));
+
+    const logged = logSpy.mock.calls[0]?.[0] as string;
+    expect(logged).toContain("default room");
+  });
+
   test("never claims the message -- later commands/responders still run", async () => {
     const bot = makeBot();
     registerLogging(bot);

@@ -14,6 +14,13 @@ export default function (bot: Bot): void {
       description: 'Replies with the current price of Ethereum when a message mentions "ethereum" and "price"',
     },
     async (ctx: IMessageContext): Promise<boolean> => {
+      // Ignore the bot's own messages -- otherwise a reply that happens to
+      // contain both keywords (e.g. the help listing's own description
+      // text for this responder) re-triggers itself.
+      if (bot.you && ctx.message.from.userId === bot.you.userId) {
+        return false;
+      }
+
       const text = ctx.message.text.toLowerCase();
       if (!text.includes("ethereum") || !text.includes("price")) {
         return false;

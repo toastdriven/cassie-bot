@@ -11,7 +11,7 @@
 export { Bot } from "./bot";
 export { Config } from "./config";
 export { Registry } from "./registry";
-export { ApronError, AuthDeniedError, UnsupportedSchemeError } from "./errors";
+export { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from "./errors";
 export { loadHandlers } from "./handlerLoader";
 export { installShutdownHandlers, main as runCli, parseArgs } from "./cli";
 export { loadToken, saveToken, tokenCachePath } from "./tokenCache";

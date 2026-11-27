@@ -3,7 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Bot } from "../src/bot";
 import { Config } from "../src/config";
-import { ApronError, AuthDeniedError, UnsupportedSchemeError } from "../src/errors";
+import { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from "../src/errors";
 import { tokenCachePath } from "../src/tokenCache";
 import { FakeWebSocket, installFakeWebSocket } from "./fixtures/fake-websocket";
 
@@ -546,7 +546,7 @@ describe("Bot.postConnect", () => {
     expect(socket.sent.length).toBe(previousCount);
   });
 
-  test("warns and continues when a configured name matches nothing in the listing", async () => {
+  test("throws RoomNotFoundError, listing available rooms, when a configured name matches nothing", async () => {
     const config = makeConfig();
     config.rooms = ["nonexistent"];
     const bot = new Bot(config);
@@ -555,23 +555,50 @@ describe("Bot.postConnect", () => {
     socket.emitMessage(ROOMS_GREETING);
     await connecting;
 
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const postConnecting = bot.postConnect();
     await waitForSentFrame(socket);
     const listFrame = socket.lastSentFrame() as { id: string };
 
-    const previousCount = socket.sent.length;
     socket.emitMessage(
       JSON.stringify({
         id: listFrame.id,
-        result: { joined: [], not_joined: [{ room_id: "general", title: "General" }] },
+        result: {
+          joined: [],
+          not_joined: [
+            { room_id: "general", title: "\ud83d\udc4b General" },
+            { room_id: "1793310132874", title: "\ud83d\udea7 Test Kitchen" },
+          ],
+        },
       }),
     );
-    await postConnecting;
 
-    expect(socket.sent.length).toBe(previousCount);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("nonexistent"));
-    warnSpy.mockRestore();
+    await expect(postConnecting).rejects.toBeInstanceOf(RoomNotFoundError);
+    await expect(postConnecting).rejects.toMatchObject({
+      roomName: "nonexistent",
+      available: [
+        { roomId: "general", title: "\ud83d\udc4b General" },
+        { roomId: "1793310132874", title: "\ud83d\udea7 Test Kitchen" },
+      ],
+      message: expect.stringContaining("\ud83d\udea7 Test Kitchen"),
+    });
+  });
+
+  test("RoomNotFoundError's message lists '(none)' when the server has no rooms at all", async () => {
+    const config = makeConfig();
+    config.rooms = ["anything"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const postConnecting = bot.postConnect();
+    await waitForSentFrame(socket);
+    const listFrame = socket.lastSentFrame() as { id: string };
+
+    socket.emitMessage(JSON.stringify({ id: listFrame.id, result: { joined: [], not_joined: [] } }));
+
+    await expect(postConnecting).rejects.toMatchObject({ message: expect.stringContaining("(none)") });
   });
 });
 

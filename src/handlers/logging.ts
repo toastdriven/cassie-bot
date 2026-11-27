@@ -10,7 +10,11 @@ export default function (bot: Bot): void {
     (ctx: IMessageContext): void => {
       const now = new Date();
       const from = ctx.message.from.name ?? ctx.message.from.userId;
-      console.log(`[${now.toUTCString()}] ${from}: ${ctx.message.text}`);
+      // roomId is undefined for the server's default room (IChatMessage,
+      // interfaces.ts) -- label that case explicitly rather than printing
+      // "undefined".
+      const room = ctx.message.roomId ?? "default room";
+      console.log(`[${now.toUTCString()}] [${room}] ${from}: ${ctx.message.text}`);
     }
   );
 }

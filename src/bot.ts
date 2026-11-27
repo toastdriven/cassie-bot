@@ -1,6 +1,6 @@
 import { Config } from './config';
 import { Registry } from './registry';
-import { ApronError, AuthDeniedError, UnsupportedSchemeError } from './errors';
+import { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from './errors';
 import { camelToSnake, snakeToCamel } from './utils';
 import { loadToken, saveToken } from './tokenCache';
 import type {
@@ -330,8 +330,10 @@ export class Bot {
 
       const match = known.find((room) => matchesRoomName(room, roomName));
       if (!match) {
-        console.warn(`cassie-bot: configured room "${roomName}" not found on server -- skipping`);
-        continue;
+        throw new RoomNotFoundError(
+          roomName,
+          known.map((room) => ({ roomId: room.roomId, title: room.title })),
+        );
       }
 
       await this.joinRoom(match.roomId);

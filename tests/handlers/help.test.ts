@@ -12,13 +12,13 @@ function makeBot(): Bot {
 
 // A minimal IMessageContext stand-in -- records what reply() was called
 // with, so tests can assert on it without a real/fake websocket.
-function makeContext(text: string): IMessageContext & { replies: string[] } {
+function makeContext(text: string, mentions: string[] = []): IMessageContext & { replies: string[] } {
   const replies: string[] = [];
   const message: IChatMessage = {
     text,
     format: "plain",
     from: { userId: "alice" },
-    mentions: [],
+    mentions,
   };
 
   return {
@@ -116,5 +116,71 @@ describe("help command", () => {
     responderRan = false;
     await bot.onMessage(notMatching);
     expect(responderRan).toBe(true);
+  });
+});
+
+describe("help responder", () => {
+  test("registers itself as a responder named 'help'", () => {
+    const bot = makeBot();
+    registerHelp(bot);
+
+    const described = bot.listHandlers().find((h) => h.name === "help" && h.kind === "responder");
+    expect(described).toBeDefined();
+  });
+
+  test("ignores a message that mentions the bot but doesn't say 'help'", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+    registerHelp(bot);
+
+    const ctx = makeContext("@cassie-bot good morning", ["cassie"]);
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual([]);
+  });
+
+  test("ignores a message that says 'help' but doesn't mention the bot", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+    registerHelp(bot);
+
+    const ctx = makeContext("can someone help me", []);
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual([]);
+  });
+
+  test("ignores a message that mentions some other user, even if it says 'help'", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+    registerHelp(bot);
+
+    const ctx = makeContext("@alice can you help?", ["alice"]);
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual([]);
+  });
+
+  test("replies with the handler listing when mentioned and 'help' is said, case-insensitively", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+    registerHelp(bot);
+    bot.registerResponder("metar", { description: "Looks up a METAR" }, () => false);
+
+    const ctx = makeContext("@cassie-bot: HELP", ["cassie"]);
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toHaveLength(1);
+    expect(ctx.replies[0]).toContain("metar");
+  });
+
+  test("does nothing if bot.you hasn't been set yet (not authenticated)", async () => {
+    const bot = makeBot();
+    registerHelp(bot);
+
+    const ctx = makeContext("@cassie-bot help", ["cassie"]);
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual([]);
   });
 });

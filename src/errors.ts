@@ -33,6 +33,32 @@ export class UnsupportedSchemeError extends Error {
   }
 }
 
+// Thrown by Bot.postConnect() when a room named in config.rooms can't be
+// resolved against the server's room_list (Apron §4.2.1) -- no room record
+// whose title or room_id matches. Most often this means the configured
+// name doesn't account for decoration a title actually carries (e.g. an
+// emoji prefix the web UI shows but a plain-text config can't easily
+// type), or a plain typo/casing mismatch the operator didn't catch.
+// Carries every available title/room_id pair so the error message (and
+// anything that catches this) can show the operator exactly what the
+// server calls its rooms, instead of them guessing at exact text.
+export class RoomNotFoundError extends Error {
+  roomName: string;
+  available: { roomId: string; title?: string }[];
+
+  constructor(roomName: string, available: { roomId: string; title?: string }[]) {
+    const listing = available.length
+      ? available.map((room) => `  - ${room.title ?? room.roomId} (room_id: ${room.roomId})`).join("\n")
+      : "  (none)";
+    super(
+      `Configured room "${roomName}" was not found on the server. Available rooms:\n${listing}`,
+    );
+    this.name = "RoomNotFoundError";
+    this.roomName = roomName;
+    this.available = available;
+  }
+}
+
 // Thrown by Bot.authenticate() when the server's `auth` reply is a
 // `denied` ApronError (code -32001, Apron §1.1's error table) -- the
 // scheme itself was valid, but the credentials weren't accepted (bad/

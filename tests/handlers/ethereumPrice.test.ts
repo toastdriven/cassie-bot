@@ -10,12 +10,15 @@ function makeBot(): Bot {
   return new Bot(config);
 }
 
-function makeContext(text: string): IMessageContext & { replies: string[] } {
+function makeContext(
+  text: string,
+  from: IChatMessage["from"] = { userId: "alice" },
+): IMessageContext & { replies: string[] } {
   const replies: string[] = [];
   const message: IChatMessage = {
     text,
     format: "plain",
-    from: { userId: "alice" },
+    from,
     mentions: [],
   };
 
@@ -131,5 +134,29 @@ describe("ethereum-price responder", () => {
     laterResponderRan = false;
     await bot.onMessage(makeContext("hello there"));
     expect(laterResponderRan).toBe(true);
+  });
+
+  test("ignores a matching message sent by the bot itself", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie" };
+    registerEthereumPrice(bot);
+    mockFetchJson({ ethereum: { usd: 1234.5 } });
+
+    const ctx = makeContext("The current price of Ethereum is...", { userId: "cassie" });
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual([]);
+  });
+
+  test("still replies to the same text from a different user", async () => {
+    const bot = makeBot();
+    bot.you = { userId: "cassie" };
+    registerEthereumPrice(bot);
+    mockFetchJson({ ethereum: { usd: 1234.5 } });
+
+    const ctx = makeContext("what's the ethereum price?", { userId: "alice" });
+    await bot.onMessage(ctx);
+
+    expect(ctx.replies).toEqual(["The current value of Ethereum is $1234.5"]);
   });
 });
