@@ -345,6 +345,236 @@ describe("Bot.sendMessage", () => {
   });
 });
 
+describe("Bot.getRoomList", () => {
+  test("sends room_list with filter 'all' and resolves with the camelCased result", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    const listing = bot.getRoomList();
+    const sentFrame = socket.lastSentFrame() as { method: string; id: string; params: unknown };
+
+    expect(sentFrame.method).toBe("room_list");
+    expect(sentFrame.params).toEqual({ filter: "all" });
+
+    socket.emitMessage(
+      JSON.stringify({
+        id: sentFrame.id,
+        result: {
+          joined: [{ room_id: "general", title: "General" }],
+          not_joined: [{ room_id: "1724803312001", title: "Test Kitchen" }],
+        },
+      }),
+    );
+
+    expect(await listing).toEqual({
+      joined: [{ roomId: "general", title: "General" }],
+      notJoined: [{ roomId: "1724803312001", title: "Test Kitchen" }],
+    });
+  });
+
+  test("rejects if called before connect() resolved", () => {
+    const bot = new Bot(makeConfig());
+
+    expect(() => bot.getRoomList()).toThrow();
+  });
+});
+
+describe("Bot.joinRoom", () => {
+  test("sends room_join with the given room_id and resolves on an empty result", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    const joining = bot.joinRoom("1724803312001");
+    const sentFrame = socket.lastSentFrame() as { method: string; id: string; params: unknown };
+
+    expect(sentFrame.method).toBe("room_join");
+    expect(sentFrame.params).toEqual({ room_id: "1724803312001" });
+
+    socket.emitMessage(JSON.stringify({ id: sentFrame.id, result: {} }));
+
+    await expect(joining).resolves.toBeUndefined();
+  });
+});
+
+describe("Bot.leaveRoom", () => {
+  test("sends room_leave (not room_join) with the given room_id and resolves on an empty result", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    const leaving = bot.leaveRoom("1724803312001");
+    const sentFrame = socket.lastSentFrame() as { method: string; id: string; params: unknown };
+
+    expect(sentFrame.method).toBe("room_leave");
+    expect(sentFrame.params).toEqual({ room_id: "1724803312001" });
+
+    socket.emitMessage(JSON.stringify({ id: sentFrame.id, result: {} }));
+
+    await expect(leaving).resolves.toBeUndefined();
+  });
+});
+
+describe("Bot.postConnect", () => {
+  // The server frame used by this block's tests, advertising capability
+  // "rooms" (Apron §4.2) so postConnect doesn't short-circuit on that
+  // check. Tests that need to exercise the no-capability path build their
+  // own greeting instead.
+  const ROOMS_GREETING = JSON.stringify({
+    method: "server",
+    params: { apron: 10, auth: ["guest", "token"], capabilities: ["rooms"] },
+  });
+
+  test("does nothing, and sends no frames, when config.rooms is empty", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const previousCount = socket.sent.length;
+    await bot.postConnect();
+
+    expect(socket.sent.length).toBe(previousCount);
+  });
+
+  test("warns and skips listing entirely when the server has no 'rooms' capability", async () => {
+    const config = makeConfig();
+    config.rooms = ["general"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING); // no capabilities advertised
+    await connecting;
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const previousCount = socket.sent.length;
+    await bot.postConnect();
+
+    expect(socket.sent.length).toBe(previousCount);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("general"));
+    warnSpy.mockRestore();
+  });
+
+  test("resolves a configured name to a room_id by title, case-insensitively, and joins it", async () => {
+    const config = makeConfig();
+    config.rooms = ["Test Kitchen"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const postConnecting = bot.postConnect();
+    await waitForSentFrame(socket);
+    const listFrame = socket.lastSentFrame() as { method: string; id: string };
+    expect(listFrame.method).toBe("room_list");
+
+    const previousCount = socket.sent.length;
+    socket.emitMessage(
+      JSON.stringify({
+        id: listFrame.id,
+        result: { not_joined: [{ room_id: "1724803312001", title: "test kitchen" }] },
+      }),
+    );
+
+    await waitForSentFrame(socket, previousCount);
+    const joinFrame = socket.lastSentFrame() as { method: string; id: string; params: unknown };
+    expect(joinFrame.method).toBe("room_join");
+    expect(joinFrame.params).toEqual({ room_id: "1724803312001" });
+
+    socket.emitMessage(JSON.stringify({ id: joinFrame.id, result: {} }));
+    await postConnecting;
+  });
+
+  test("falls back to matching room_id directly when a room has no title", async () => {
+    const config = makeConfig();
+    config.rooms = ["general"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const postConnecting = bot.postConnect();
+    await waitForSentFrame(socket);
+    const listFrame = socket.lastSentFrame() as { id: string };
+
+    const previousCount = socket.sent.length;
+    socket.emitMessage(
+      JSON.stringify({ id: listFrame.id, result: { not_joined: [{ room_id: "general" }] } }),
+    );
+
+    await waitForSentFrame(socket, previousCount);
+    const joinFrame = socket.lastSentFrame() as { method: string; params: unknown };
+    expect(joinFrame.method).toBe("room_join");
+    expect(joinFrame.params).toEqual({ room_id: "general" });
+
+    socket.emitMessage(JSON.stringify({ id: (socket.lastSentFrame() as { id: string }).id, result: {} }));
+    await postConnecting;
+  });
+
+  test("skips a room that is already joined, without sending room_join", async () => {
+    const config = makeConfig();
+    config.rooms = ["general"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const postConnecting = bot.postConnect();
+    await waitForSentFrame(socket);
+    const listFrame = socket.lastSentFrame() as { id: string };
+
+    const previousCount = socket.sent.length;
+    socket.emitMessage(
+      JSON.stringify({
+        id: listFrame.id,
+        result: { joined: [{ room_id: "general", title: "General" }] },
+      }),
+    );
+    await postConnecting;
+
+    expect(socket.sent.length).toBe(previousCount);
+  });
+
+  test("warns and continues when a configured name matches nothing in the listing", async () => {
+    const config = makeConfig();
+    config.rooms = ["nonexistent"];
+    const bot = new Bot(config);
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(ROOMS_GREETING);
+    await connecting;
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const postConnecting = bot.postConnect();
+    await waitForSentFrame(socket);
+    const listFrame = socket.lastSentFrame() as { id: string };
+
+    const previousCount = socket.sent.length;
+    socket.emitMessage(
+      JSON.stringify({
+        id: listFrame.id,
+        result: { joined: [], not_joined: [{ room_id: "general", title: "General" }] },
+      }),
+    );
+    await postConnecting;
+
+    expect(socket.sent.length).toBe(previousCount);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("nonexistent"));
+    warnSpy.mockRestore();
+  });
+});
+
 describe("Bot.receiveMessage", () => {
   test("logs and ignores a reply whose id matches no pending request", async () => {
     const bot = new Bot(makeConfig());

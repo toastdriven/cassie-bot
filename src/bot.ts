@@ -14,7 +14,16 @@ import type {
   IMessageContext,
   IChatMessage,
 } from './interfaces';
-import type { IAuthResult, IServerInfo, IUser } from './wire';
+import type { IAuthResult, IRoomListResult, IRoomRecord, IServerInfo, IUser } from './wire';
+
+// A configured room name matches a room record by title (case-insensitive --
+// titles are a free-form display string, Apron §4.2) or, failing that, by
+// room_id directly (covers a server with no title set, where room_id doubles
+// as the display name -- e.g. the spec's own "general" example).
+function matchesRoomName(room: IRoomRecord, configuredName: string): boolean {
+  const title = room.title ?? room.roomId;
+  return title.toLowerCase() === configuredName.toLowerCase() || room.roomId === configuredName;
+}
 
 // A frame off the wire, already passed through snakeToCamel -- see
 // receiveMessage. Loose on purpose: every field below is actually optional
@@ -258,6 +267,78 @@ export class Bot {
       clearInterval(this._pingTimer);
       this._pingTimer = undefined;
     }
+  }
+
+  // Joins every room named in config.rooms, resolving each configured name
+  // against the server's room listing first -- room_id (Apron §2.1) is an
+  // opaque, server-assigned identifier, never the display name a user
+  // configures. "general" working by plain string match was a coincidence
+  // of that particular server's example data (room_id happened to equal
+  // its own title), not something a client can rely on in general.
+  //
+  // No-ops gracefully (with a warning) if the server lacks capability
+  // "rooms" at all -- without it there is exactly one default room and no
+  // room_join (Apron §3.4/§4.2).
+  async postConnect(): Promise<void> {
+    if (!this.serverInfo) {
+      throw new Error("postConnect() called before connect() resolved");
+    }
+
+    if (!this.config.rooms.length) {
+      return;
+    }
+
+    if (!this.serverInfo.capabilities?.includes("rooms")) {
+      console.warn(
+        `cassie-bot: config lists rooms (${this.config.rooms.join(", ")}) but the server has no "rooms" capability -- skipping`,
+      );
+      return;
+    }
+
+    const { joined = [], notJoined = [] } = await this.getRoomList();
+    const known = [...joined, ...notJoined];
+
+    for (const roomName of this.config.rooms) {
+      const alreadyJoined = joined.some((room) => matchesRoomName(room, roomName));
+      if (alreadyJoined) {
+        continue;
+      }
+
+      const match = known.find((room) => matchesRoomName(room, roomName));
+      if (!match) {
+        console.warn(`cassie-bot: configured room "${roomName}" not found on server -- skipping`);
+        continue;
+      }
+
+      await this.joinRoom(match.roomId);
+    }
+  }
+
+  // Lists rooms visible to this connection (Apron §4.2.1). Returns the raw
+  // joined/notJoined/left arrays of room records -- callers match against
+  // config-provided display names themselves (see postConnect).
+  async getRoomList(): Promise<IRoomListResult> {
+    if (!this.serverInfo) {
+      throw new Error("getRoomList() called before connect() resolved");
+    }
+
+    return this._sendRequest<IRoomListResult>("room_list", {
+      filter: "all",
+    });
+  }
+
+  // Joins a room by its server-assigned room_id (not a display name --
+  // resolve a configured name to a room_id via getRoomList()/postConnect
+  // first). Per Apron §4.2.2, the result is just "{}"; nothing meaningful
+  // to return.
+  async joinRoom(roomId: string): Promise<void> {
+    await this._sendRequest<Record<string, never>>("room_join", { roomId });
+  }
+
+  // Leaves a room by its server-assigned room_id. Same "{}" result as
+  // joinRoom (Apron §4.2.2).
+  async leaveRoom(roomId: string): Promise<void> {
+    await this._sendRequest<Record<string, never>>("room_leave", { roomId });
   }
 
   // The handler-facing API: posts a message (Apron §3.5) and resolves with

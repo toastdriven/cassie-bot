@@ -35,6 +35,7 @@ export async function main(): Promise<void> {
 
   await bot.connect();
   await bot.authenticate();
+  await bot.postConnect();
 
   console.log(`cassie-bot: connected to ${config.serverUri} as ${bot.you?.userId ?? "(unknown)"}`);
 

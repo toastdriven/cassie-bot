@@ -33,3 +33,30 @@ export interface IAuthResult {
   you?: IUser;
   token?: string;
 }
+
+// Apron §4.2 room record -- what `room_list`, `room_update`, and `history`
+// carry for each room. `roomId` is the server-assigned opaque identifier
+// (never the display name); `title` is the human-readable label a client
+// shows, falling back to `roomId` when absent. Loose/partial, same policy
+// as the rest of this file -- only what Bot actually reads today.
+export interface IRoomRecord {
+  roomId: string;
+  logId?: string;
+  prevLogId?: string;
+  parentRoomId?: string;
+  private?: boolean;
+  title?: string;
+  description?: string;
+  latestLogId?: string;
+  historyLogId?: string | null;
+  members?: IUser[];
+  memberCount?: number;
+}
+
+// Apron §4.2.1 `room_list` result.
+export interface IRoomListResult {
+  joined?: IRoomRecord[];
+  notJoined?: IRoomRecord[];
+  left?: { roomId: string }[];
+  users?: IUser[];
+}
