@@ -1,8 +1,21 @@
 {
-  "name": "cassie-bot",
+  "name": "@toastdriven/cassie-bot",
+  "version": "0.1.0",
+  "description": "A flexible/extensible chat bot that speaks the Apron protocol.",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toastdriven/cassie-bot.git"
+  },
+  "readme": "README.md",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "bin": {
+    "cassie-bot": "bin/cassie-bot.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "bun test"
   },
@@ -13,6 +26,7 @@
     "typescript": "^7"
   },
   "dependencies": {
+    "jiti": "^2.7.0",
     "smol-toml": "^1.9.1"
   }
 }

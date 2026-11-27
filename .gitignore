@@ -27,6 +27,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# cassie-bot's own token cache (per-server bearer tokens, see src/tokenCache.ts) --
+# never commit this; it's a live credential, written next to a bot's config file.
+.cassie-bot-tokens.json
+
 # IntelliJ based IDEs
 .idea
 
