@@ -1,0 +1,10 @@
+botName = "cassie"
+serverUri = "wss://chat.example/ws"
+agent = "cassie-bot/0.1"
+rooms = ["general", "ops"]
+handlers = ["metar", "giphy"]
+disabled = ["help"]
+
+[auth]
+scheme = "token"
+token = "secret-token"

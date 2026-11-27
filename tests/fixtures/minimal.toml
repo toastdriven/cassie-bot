@@ -1,0 +1,4 @@
+serverUri = "ws://localhost:8080/ws"
+
+[auth]
+scheme = "guest"

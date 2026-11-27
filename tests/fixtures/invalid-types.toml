@@ -1,0 +1,6 @@
+# Fields with the wrong shape should be ignored, not thrown, and the
+# Config should keep its defaults for each of them.
+botName = 42
+rooms = "general"
+handlers = [1, 2, 3]
+auth = "token"
