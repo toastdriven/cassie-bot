@@ -54,11 +54,8 @@ export interface IMessageContext {
   // Sends a new message back to the same room the incoming message arrived
   // in. Internal callers pass camelCase options here too; whatever
   // implements this interface is responsible for converting to the wire
-  // (snake_case) `message` request before sending.
-  //
-  // TODO: stubbed at the interface level only -- there is no websocket
-  // client yet to actually implement this against. Revisit the signature
-  // once that exists (e.g. does it need to report the server's assigned
-  // message_id back to the caller?).
+  // (snake_case) `message` request before sending. Implemented by
+  // Bot._handleIncomingMessage (src/bot.ts), which wires this to
+  // Bot.sendMessage pinned to the incoming message's roomId.
   reply(text: string, options?: { format?: "plain" | "markdown" }): Promise<void>;
 }

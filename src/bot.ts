@@ -25,6 +25,30 @@ function matchesRoomName(room: IRoomRecord, configuredName: string): boolean {
   return title.toLowerCase() === configuredName.toLowerCase() || room.roomId === configuredName;
 }
 
+// Merges a `user` notification's `you` into the kept IUser, per Apron
+// §3.3.1's "current object" rule: a field the notification doesn't carry
+// stays as it was; a field it carries replaces the kept value; an empty
+// value ("" or []) clears the field rather than being stored literally.
+// `userId` is always present and always wins.
+//
+// `incoming` is deliberately typed loosely (not IUser) -- presence ("was
+// this key sent at all?") matters here, which an optional TS field can't
+// distinguish from "sent as undefined", so field checks below use `in`
+// against the raw object instead of `!== undefined`.
+function mergeUser(existing: IUser | undefined, incoming: Record<string, unknown>): IUser {
+  const merged: IUser = { userId: incoming.userId as string, name: existing?.name, roles: existing?.roles };
+
+  if ("name" in incoming) {
+    merged.name = incoming.name === "" ? undefined : (incoming.name as string);
+  }
+  if ("roles" in incoming) {
+    const roles = incoming.roles as string[];
+    merged.roles = roles.length === 0 ? undefined : roles;
+  }
+
+  return merged;
+}
+
 // A frame off the wire, already passed through snakeToCamel -- see
 // receiveMessage. Loose on purpose: every field below is actually optional
 // depending on whether the frame is a notification, a request reply, or an
@@ -448,10 +472,17 @@ export class Bot {
         // Liveness acknowledgement; nothing to do with it today.
         return;
 
-      case "user":
-        // TODO: track other users' identities (Apron §3.3.3) once a
-        // handler actually needs them (e.g. resolving a mention's name).
+      case "user": {
+        // Only `you` is tracked -- the bot's own identity, so handlers can
+        // match @mentions of its current name (Apron §3.3.3). `new`/`old`
+        // describe *other* users sharing a room with the bot; out of scope
+        // for now (no user directory kept).
+        const params = frame.params as { you?: Record<string, unknown> } | undefined;
+        if (params?.you) {
+          this.you = mergeUser(this.you, params.you);
+        }
         return;
+      }
 
       default:
         // Unknown method, or no method at all (e.g. an out-of-band error

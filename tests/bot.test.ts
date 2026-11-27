@@ -575,6 +575,117 @@ describe("Bot.postConnect", () => {
   });
 });
 
+describe("Bot - 'user' notification handling (own identity, Apron §3.3.3)", () => {
+  test("a 'you' notification updates bot.you's name", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+
+    socket.emitMessage(
+      JSON.stringify({ method: "user", params: { you: { user_id: "cassie", name: "Bot of toastdriven" } } }),
+    );
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "Bot of toastdriven" });
+  });
+
+  test("a field the notification omits is left unchanged", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot", roles: ["bot"] };
+
+    // Notification carries only a name change; roles is absent, not "".
+    socket.emitMessage(
+      JSON.stringify({ method: "user", params: { you: { user_id: "cassie", name: "Bot of toastdriven" } } }),
+    );
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "Bot of toastdriven", roles: ["bot"] });
+  });
+
+  test("an empty string clears name, falling back to userId", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+
+    socket.emitMessage(JSON.stringify({ method: "user", params: { you: { user_id: "cassie", name: "" } } }));
+
+    expect(bot.you).toEqual({ userId: "cassie", name: undefined });
+  });
+
+  test("an empty roles array clears roles", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot", roles: ["bot"] };
+
+    socket.emitMessage(JSON.stringify({ method: "user", params: { you: { user_id: "cassie", roles: [] } } }));
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "cassie-bot", roles: undefined });
+  });
+
+  test("a non-empty roles array replaces the kept roles", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+
+    socket.emitMessage(
+      JSON.stringify({ method: "user", params: { you: { user_id: "cassie", roles: ["bot", "trusted"] } } }),
+    );
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "cassie-bot", roles: ["bot", "trusted"] });
+  });
+
+  test("ignores 'new'/'old' (other users) without touching bot.you", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    bot.you = { userId: "cassie", name: "cassie-bot" };
+
+    socket.emitMessage(
+      JSON.stringify({ method: "user", params: { new: { user_id: "alice", name: "Alice L" } } }),
+    );
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "cassie-bot" });
+  });
+
+  test("sets bot.you from a 'you' notification even if nothing was tracked yet", async () => {
+    const bot = new Bot(makeConfig());
+    const connecting = bot.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitMessage(SERVER_GREETING);
+    await connecting;
+
+    expect(bot.you).toBeUndefined();
+
+    socket.emitMessage(
+      JSON.stringify({ method: "user", params: { you: { user_id: "cassie", name: "Bot of toastdriven" } } }),
+    );
+
+    expect(bot.you).toEqual({ userId: "cassie", name: "Bot of toastdriven" });
+  });
+});
+
 describe("Bot.receiveMessage", () => {
   test("logs and ignores a reply whose id matches no pending request", async () => {
     const bot = new Bot(makeConfig());

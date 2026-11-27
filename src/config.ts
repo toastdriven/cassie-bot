@@ -17,18 +17,19 @@ export class Config {
   // auth.token is only the *bootstrap* credential for "token": per §3.2.1
   // the server may rotate the token on each reply, and the client is
   // expected to save the latest one for future connections.
-  // TODO: once a token is rotated by the server, the bootstrap value here
-  // is stale. Need a separate (gitignored) token-cache file that the bot
-  // reads/writes at runtime, rather than relying on this field after the
-  // first successful connection.
+  // Once a token is rotated by the server, this bootstrap value goes
+  // stale -- Bot.authenticate() reads/writes a separate (gitignored)
+  // token-cache file at runtime instead (see tokenCache.ts), falling
+  // back to this field only when no cached token exists yet.
   auth: { scheme: string; token?: string } = { scheme: "guest" };
 
-  // TODO: `rooms` only means anything if the server advertises capability
-  // "rooms" (Apron §3.4/§4.2). A server without it has exactly one
-  // default room, and there's no room_join at all -- the bot just learns
-  // its room_id from whatever arrives. Need to check server.capabilities
-  // at connect time and warn/no-op gracefully if this list is non-empty
-  // but the server has no "rooms" capability.
+  // Names of rooms to join on startup, matched against the server's
+  // room_list by title (case-insensitively) or, failing that, by raw
+  // room_id -- see Bot.postConnect(). Only meaningful if the server
+  // advertises capability "rooms" (Apron §3.4/§4.2); without it there's
+  // exactly one default room and no room_join. postConnect() checks
+  // server.capabilities itself and warns + no-ops if this list is
+  // non-empty but the server lacks that capability.
   rooms: string[] = [];
 
   // Built-in + installed handlers to enable, by name.
