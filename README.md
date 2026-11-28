@@ -8,12 +8,29 @@ Cassie is short for _"casserole"_, a dish with a million variants/customizations
 ## Quickstart
 
 1. Make a directory for your bot
-2. Install `cassie-bot`
-   a. _e.g._ `npm install @toastdriven/cassie-bot`
-3. Create a `bot.toml` configuration file (based off the below)
-4. If you want to create your own listeners/commands/responders, create a `handlers`
+2. Inside the directory, create a basic `package.json`
+3. Install `cassie-bot`
+   - _e.g._ `npm install @toastdriven/cassie-bot`
+4. Create a `bot.toml` configuration file (based off the below)
+5. If you want to create your own listeners/commands/responders, create a `handlers`
    directory next to the `bot.toml`.
-5. Run the bot with `cassie-bot --config bot.toml`
+6. Run the bot with `./node_modules/bin/cassie-bot --config bot.toml`
+
+### A note on TypeScript, if you type-check your own handlers
+
+cassie-bot ships raw `.ts` source (no build/declaration step), so a real
+`npm install` resolves/hoists its own `@types/node` dependency into your
+project's `node_modules/@types/` automatically -- Node globals used
+internally (`process`, `node:fs`, etc.) should just work under `tsc`
+with no extra steps.
+
+If your own `tsconfig.json` sets `"types": []` (TypeScript's "Node.js"
+quickstart template includes this, commented out, as a starting point),
+that explicitly opts out of *all* ambient `@types/*` auto-inclusion, even
+ones that are actually installed -- you'll see errors like `Cannot find
+name 'process'` pointing at cassie-bot's own files, not yours. Fix:
+change it to `"types": ["node"]` to opt back in just for Node's ambient
+types.
 
 ## Config File
 

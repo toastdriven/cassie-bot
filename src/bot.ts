@@ -1,20 +1,20 @@
-import { Config } from './config';
-import { Registry } from './registry';
-import { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from './errors';
-import { camelToSnake, snakeToCamel } from './utils';
-import { loadToken, saveToken } from './tokenCache';
+import { Config } from './config.js';
+import { Registry } from './registry.js';
+import { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from './errors.js';
+import { camelToSnake, snakeToCamel } from './utils.js';
+import { loadToken, saveToken } from './tokenCache.js';
 import type {
   ListenerHandler,
   CommandHandler,
   ResponderHandler,
-} from './types';
+} from './types.js';
 import type {
   IHandlerDescription,
   IHandlerOptions,
   IMessageContext,
   IChatMessage,
-} from './interfaces';
-import type { IAuthResult, IRoomListResult, IRoomRecord, IServerInfo, IUser } from './wire';
+} from './interfaces.js';
+import type { IAuthResult, IRoomListResult, IRoomRecord, IServerInfo, IUser } from './wire.js';
 
 // A configured room name matches a room record by title (case-insensitive --
 // titles are a free-form display string, Apron §4.2) or, failing that, by
@@ -36,17 +36,27 @@ function matchesRoomName(room: IRoomRecord, configuredName: string): boolean {
 // distinguish from "sent as undefined", so field checks below use `in`
 // against the raw object instead of `!== undefined`.
 function mergeUser(existing: IUser | undefined, incoming: Record<string, unknown>): IUser {
-  const merged: IUser = { userId: incoming.userId as string, name: existing?.name, roles: existing?.roles };
-
+  // IUser's `name`/`roles` are optional (`?:`), and under
+  // exactOptionalPropertyTypes that means "key omitted or a real value",
+  // never "key present with value undefined" -- so each field is only
+  // ever spread in when it actually has a defined value, rather than
+  // always assigned (possibly to undefined) and fixed up after.
+  let name = existing?.name;
   if ("name" in incoming) {
-    merged.name = incoming.name === "" ? undefined : (incoming.name as string);
-  }
-  if ("roles" in incoming) {
-    const roles = incoming.roles as string[];
-    merged.roles = roles.length === 0 ? undefined : roles;
+    name = incoming.name === "" ? undefined : (incoming.name as string);
   }
 
-  return merged;
+  let roles = existing?.roles;
+  if ("roles" in incoming) {
+    const incomingRoles = incoming.roles as string[];
+    roles = incomingRoles.length === 0 ? undefined : incomingRoles;
+  }
+
+  return {
+    userId: incoming.userId as string,
+    ...(name !== undefined ? { name } : {}),
+    ...(roles !== undefined ? { roles } : {}),
+  };
 }
 
 // A frame off the wire, already passed through snakeToCamel -- see
@@ -332,7 +342,10 @@ export class Bot {
       if (!match) {
         throw new RoomNotFoundError(
           roomName,
-          known.map((room) => ({ roomId: room.roomId, title: room.title })),
+          known.map((room) => ({
+            roomId: room.roomId,
+            ...(room.title !== undefined ? { title: room.title } : {}),
+          })),
         );
       }
 
@@ -519,7 +532,10 @@ export class Bot {
     const ctx: IMessageContext = {
       message,
       reply: async (text: string, options?: { format?: "plain" | "markdown" }) => {
-        await this.sendMessage(text, { roomId, format: options?.format });
+        await this.sendMessage(text, {
+          ...(roomId !== undefined ? { roomId } : {}),
+          ...(options?.format !== undefined ? { format: options.format } : {}),
+        });
       },
     };
 

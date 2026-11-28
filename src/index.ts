@@ -8,13 +8,13 @@
 // cli.ts, not here, so it stays optional for anyone building their own
 // entrypoint.
 
-export { Bot } from "./bot";
-export { Config } from "./config";
-export { Registry } from "./registry";
-export { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from "./errors";
-export { loadHandlers } from "./handlerLoader";
-export { installShutdownHandlers, main as runCli, parseArgs } from "./cli";
-export { loadToken, saveToken, tokenCachePath } from "./tokenCache";
+export { Bot } from "./bot.js";
+export { Config } from "./config.js";
+export { Registry } from "./registry.js";
+export { ApronError, AuthDeniedError, RoomNotFoundError, UnsupportedSchemeError } from "./errors.js";
+export { loadHandlers } from "./handlerLoader.js";
+export { installShutdownHandlers, main as runCli, parseArgs } from "./cli.js";
+export { loadToken, saveToken, tokenCachePath } from "./tokenCache.js";
 
 export type {
   IChatMessage,
@@ -22,6 +22,6 @@ export type {
   IHandlerOptions,
   IMessageContext,
   IRegistry,
-} from "./interfaces";
-export type { CommandHandler, ListenerHandler, ResponderHandler } from "./types";
-export type { IAuthResult, IServerInfo, IUser } from "./wire";
+} from "./interfaces.js";
+export type { CommandHandler, ListenerHandler, ResponderHandler } from "./types.js";
+export type { IAuthResult, IServerInfo, IUser } from "./wire.js";

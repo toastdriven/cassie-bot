@@ -1,5 +1,5 @@
-import { Bot } from '../bot';
-import type { IMessageContext } from '../interfaces';
+import { Bot } from '../bot.js';
+import type { IMessageContext } from '../interfaces.js';
 
 export default function (bot: Bot): void {
   bot.registerListener(

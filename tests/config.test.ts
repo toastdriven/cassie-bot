@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Config } from "../src/config";
 
 const fixture = (name: string) => join(import.meta.dir, "fixtures", name);
@@ -8,7 +8,12 @@ describe("Config", () => {
   test("constructor sets configPath and leaves the rest at their defaults", () => {
     const config = new Config("./some/path.toml");
 
-    expect(config.configPath).toBe("./some/path.toml");
+    // configPath is resolved to an absolute path (relative to cwd) --
+    // see Config's constructor comment for why: a relative configPath
+    // left as-is breaks handlerLoader.ts's and tokenCache.ts's path.join
+    // calls, which silently collapse a relative dirname and produce a
+    // bare module specifier instead of a relative path.
+    expect(config.configPath).toBe(resolve("./some/path.toml"));
     expect(config.botName).toBe("cassie-bot");
     expect(config.serverUri).toBe("");
     expect(config.agent).toBe("cassie-bot/0.1");

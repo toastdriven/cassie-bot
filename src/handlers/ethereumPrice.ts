@@ -1,5 +1,5 @@
-import { Bot } from '../bot';
-import type { IMessageContext } from '../interfaces';
+import { Bot } from '../bot.js';
+import type { IMessageContext } from '../interfaces.js';
 
 // Deliberately naive: no caching, no retry, no handling of CoinGecko being
 // down/rate-limited beyond "the request throws or the shape isn't what we

@@ -7,8 +7,10 @@ Node vs. Bun" below) -- that constraint shapes several decisions below.
 
 Published as `@toastdriven/cassie-bot` (not yet actually published --
 `package.json` has the metadata, but confirm with the project owner
-before running `npm publish`). Version `0.1.0`. License: BSD-3-Clause
-(see `LICENSE`). Repo: https://github.com/toastdriven/cassie-bot.
+before running `npm publish`). Version `0.2.0` (bumped from `0.1.0`;
+a real release is pending as of this writing -- confirm with the project
+owner before tagging/publishing). License: BSD-3-Clause (see `LICENSE`).
+Repo: https://github.com/toastdriven/cassie-bot.
 
 ## Goal
 
@@ -52,6 +54,14 @@ Three extension kinds:
 The `Bot` class itself does **no** detection/parsing of commands or
 keywords. It just receives a message off the websocket and iterates
 registries, letting each registered handler decide whether it applies.
+
+A command handler claims by exact/prefix string match on `text`; a
+responder claims by keyword/pattern on `text`, OR (new convention,
+established by the built-in `help` responder -- see below) by checking
+`ctx.message.mentions.includes(bot.you?.userId)` to react to an `@`
+mention of the bot's *current* name specifically, since the server may
+intercept a literal `/command`-shaped string in the web UI before it
+ever reaches the bot as a normal message.
 
 ## Decided architecture
 
@@ -112,7 +122,28 @@ registries, letting each registered handler decide whether it applies.
   NOT the wire format -- see "camelCase/snake_case boundary" below.
   Explicitly not yet modeled (documented as a TODO in the file itself):
   `message_id`/`log_id`/`prev_log_id`, `reply_to` (threading), `embeds`,
-  roles on `from`.
+  roles on `from`. **Left alone deliberately** (project owner's explicit
+  call, not an oversight) -- flesh out as the need actually arises, not
+  speculatively.
+- **`Bot.you: IUser | undefined`** (`src/bot.ts`) -- the bot's own
+  identity, kept live across the whole connection, not just set once at
+  auth time. The server is free to assign a *different* display name
+  than the one requested in `config.botName` (confirmed live against a
+  real server: requested `cassie-bot`, got back `Bot of toastdriven`),
+  and per Apron §3.3.1 a `user` notification can update it again later
+  (e.g. an operator renaming the bot mid-session). Two write sites, both
+  going through the same `mergeUser()` helper so the "current object"
+  merge rules (§3.3.1: omitted key keeps old value, empty string/array
+  clears it, anything else replaces it) are applied consistently:
+  - `authenticate()` sets `this.you = result.you` outright (the first,
+    complete identity).
+  - `receiveMessage()` merges a later `user` notification's `you` field
+    into the existing `this.you`, field-by-field, rather than replacing
+    the whole object (a notification may carry only the field that
+    changed).
+  This is what lets a responder check `ctx.message.mentions.includes(
+  bot.you?.userId)` and have it track renames automatically instead of
+  going stale after the first rename.
 
 ## camelCase / snake_case boundary
 
@@ -162,11 +193,20 @@ without loading a file:
   picks one of the server's advertised auth schemes (§3.2). `auth.token`
   is only the *bootstrap* credential for `scheme: "token"` -- see
   "Token persistence" below for what actually gets used at runtime.
-- `rooms: string[] = []` -- rooms to join on startup. **Still a TODO,
-  unimplemented**: only meaningful if the server advertises capability
-  `"rooms"` (§3.4/§4.2); without it there's exactly one default room and
-  no `room_join`. Nothing in `Bot` checks `server.capabilities` against
-  this yet, or actually joins any room.
+- `rooms: string[] = []` -- rooms to join on startup, by display name
+  (matched case-insensitively against a room's `title`, or failing that
+  its raw `room_id` -- see `matchesRoomName()`/`Bot.postConnect()` in
+  `src/bot.ts`). **Implemented.** Only meaningful if the server
+  advertises capability `"rooms"` (§3.4/§4.2); `postConnect()` checks
+  `server.capabilities` itself and warns + no-ops if this list is
+  non-empty but the server lacks that capability. A configured name that
+  doesn't resolve against the server's `room_list` throws
+  `RoomNotFoundError` (`src/errors.ts`) -- deliberately fails loud rather
+  than silently skipping, and the error carries every room the server
+  *does* know about (`title`/`room_id` pairs) so the operator can see
+  exactly what the server calls its rooms instead of guessing at exact
+  text/casing/decoration (e.g. an emoji prefix a title carries that a
+  plain-text TOML value doesn't).
 - `handlers: string[] = []` -- **reserved, unimplemented**: intended for
   naming an npm-installed handler *package* in the future (as opposed to
   a file in the user's own `handlers/` directory, or a built-in). Not
@@ -180,7 +220,9 @@ without loading a file:
   `server.ping`'s interval properly beyond the existing ping timer (see
   `Bot.connect`), don't auto-reconnect after a `denied` error, wait out
   `retry_after` before reconnecting (§1.1). No actual reconnect logic
-  exists; a dropped connection just... stays dropped.
+  exists; a dropped connection just... stays dropped. (This is the one
+  item the project owner has flagged as wanting to dig into next, after
+  the TS-packaging work below settles.)
 
 `Config.loadFromFile(configPath): Promise<Config>` is a **static factory
 method** (reading a file is async; a constructor can't be). Reads via
@@ -210,6 +252,18 @@ permissive choice; only a missing/unreadable file rejects.
 - **`sendMessage(text, options?): Promise<{ messageId: ... }>`** -- builds
   and sends a `message` request (camelCase in, snake_case on the wire),
   resolves with whatever the server assigns back.
+- **`postConnect(): Promise<void>`** -- joins every room in
+  `config.rooms` (see `rooms` field above for the matching/error
+  behavior). Called by `cli.ts`'s `main()` after `authenticate()`
+  succeeds.
+- **`getRoomList(): Promise<IRoomListResult>`** -- `room_list` request
+  (Apron §4.2.1, `filter: "all"`), returns the raw `joined`/`notJoined`/
+  `left` arrays. `postConnect()` is the only caller today, but exposed
+  publicly in case a handler wants to introspect rooms directly.
+- **`joinRoom(roomId): Promise<void>`** -- `room_join` by server-assigned
+  `room_id` (Apron §4.2.2; the reply is just `{}`, nothing to return).
+  Takes a `room_id`, never a display name -- resolve one via
+  `getRoomList()`/`postConnect()`'s matching logic first.
 - **`disconnect(): void`** -- closes the socket if open; `_handleClose`
   (shared with an unexpected server-initiated close) stops the ping
   timer and rejects any requests still waiting on a reply.
@@ -303,14 +357,29 @@ it's scoped to one bot process's own cache file.
 Registered by `handlerLoader.ts`'s `BUILTIN_HANDLERS` map, default-on
 unless named in `config.disabled`:
 
-- **`help`** (command, `src/handlers/help.ts`) -- matches an exact `/help`
-  message, replies with a markdown-formatted list of every registered
-  command/responder (via `bot.listHandlers()`, filtered to exclude
-  listeners) and its description.
+- **`help`** (command *and* responder, `src/handlers/help.ts`) -- two
+  separate registrations, since a server and/or its web UI may intercept
+  a literal `/help`-shaped message before the bot ever sees it as a
+  normal message:
+  - the **command**: matches an exact `/help` message.
+  - the **responder**: fires on an `@`-mention of the bot specifically
+    (`ctx.message.mentions.includes(bot.you?.userId)`, not a text match
+    on `@<name>` -- name can change, userId can't) combined with a
+    case-insensitive substring check for `"help"` anywhere in the text
+    (deliberately loose/unstrict for now, per the project owner). A
+    mention with no `bot.you` set yet (pre-auth) is a safe no-op, not a
+    crash.
+  Both paths reply with the same markdown-formatted list of every
+  registered command/responder (via `bot.listHandlers()`, filtered to
+  exclude listeners) and its description.
 - **`ethereum-price`** (responder, `src/handlers/ethereumPrice.ts`) --
   naive keyword match: both `"ethereum"` and `"price"` must appear
   anywhere in the message text (case-insensitive substring check, no word
-  boundaries). On match, fetches
+  boundaries). Ignores the bot's own messages first
+  (`ctx.message.from.userId === bot.you?.userId` -> immediate `false`) --
+  without this it would re-trigger on its own price replies, and also on
+  the `help` listing (which happens to contain both words). On a real
+  match, fetches
   `https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd`
   (plain `fetch`, no auth) and replies
   `"The current value of Ethereum is $<price>"`. Any failure (network
@@ -323,11 +392,15 @@ unless named in `config.disabled`:
   real vantage point.
 - **`logging`** (listener, `src/handlers/logging.ts`) -- logs every
   message via `console.log`, formatted as
-  `[<UTC timestamp>] <from.name ?? from.userId>: <text>`. Written by the
-  project owner themselves (not generated); the one bug caught in review
-  (returning `Promise<boolean>` from a listener, and interpolating the
-  `from` object directly instead of extracting a name/userId string) was
-  fixed collaboratively.
+  `[<UTC timestamp>] [<room>] <from.name ?? from.userId>: <text>`, where
+  `<room>` is `ctx.message.roomId ?? "default room"` (`roomId` is
+  `undefined` for the server's one default room, not a real id to
+  display). Written by the project owner themselves (not generated); two
+  bugs caught in review and fixed collaboratively: the original listener
+  returned `Promise<boolean>` instead of `void`, and interpolated the
+  `from` object directly instead of extracting a name/userId string; the
+  room was added after the fact once the owner noticed the log line never
+  said which room a message came from.
 
 ## `src/handlerLoader.ts` -- loading built-ins + user handlers
 
@@ -360,14 +433,17 @@ directly (not just by green tests) under plain Node 26, not just Bun.
 
 - **`src/cli.ts`** -- `parseArgs(argv)` (reads `--config`/`-c`, throws a
   usage error if missing), `main()` (load config -> build `Bot` ->
-  `loadHandlers` -> `connect` -> `authenticate` -> log -> install shutdown
-  handlers -- keeps running after that; the bot runs entirely off the
-  socket's own events from then on), and `installShutdownHandlers(bot,
-  exit?)` (SIGINT/SIGTERM -> `bot.disconnect()` + exit 0; a second signal
-  mid-shutdown force-exits with 1 instead of disconnecting twice). `main`
-  is never invoked as an import side effect -- only `bin/cassie-bot.js`
-  calls it -- so the module stays safely importable by tests and by
-  consumers composing their own bootstrap.
+  `loadHandlers` -> `connect` -> `authenticate` -> `postConnect` (room
+  joins) -> log -> install shutdown handlers -- keeps running after that;
+  the bot runs entirely off the socket's own events from then on), and
+  `installShutdownHandlers(bot, exit?)` (SIGINT/SIGTERM ->
+  `bot.disconnect()` + exit 0; a second signal mid-shutdown force-exits
+  with 1 instead of disconnecting twice). `main` is never invoked as an
+  import side effect -- only `bin/cassie-bot.js` calls it -- so the
+  module stays safely importable by tests and by consumers composing
+  their own bootstrap. A `RoomNotFoundError` thrown out of `postConnect`
+  propagates up through `main` uncaught -- startup fails loudly with the
+  available-rooms listing, by design (see `rooms` field above).
 - **`bin/cassie-bot.js`** -- the actual npm/bun `bin` entry (plain JS,
   must be, since it runs before any of this package's own TS-loading
   machinery exists). Uses `jiti` to import and run `src/cli.ts`'s
@@ -388,7 +464,9 @@ Bun's built-in test runner (`bun:test`). Run via `bun test` or
 worth running separately since `bun test` doesn't fail on type errors by
 itself.
 
-**102 tests passing** across 9 files, as of this writing:
+**130 tests passing** across 9 files, as of this writing (up from 102 --
+the growth is room-joining, identity tracking, the `help` responder, and
+associated bugfix coverage, all added this round):
 - `tests/config.test.ts` -- `Config` defaults, `loadFromFile` round-trip/
   defaults/wrong-type-skips/missing-file-rejects, with TOML fixtures
   under `tests/fixtures/` (`full.toml`, `minimal.toml`,
@@ -419,9 +497,18 @@ itself.
   degrade-to-undefined, and create/overwrite-preserving-others/recover-
   from-corrupt for saves.
 - `tests/handlers/help.test.ts`, `tests/handlers/ethereumPrice.test.ts`,
-  `tests/handlers/logging.test.ts` -- each built-in's registration kind,
-  matching logic, and (for `ethereum-price`) mocked `globalThis.fetch`
-  rather than a real network call.
+  `tests/handlers/logging.test.ts` -- each built-in's registration kind
+  and matching logic. `help.test.ts` covers both of `help`'s
+  registrations separately: the command's exact-match behavior, and the
+  responder's six cases (registration; mention-without-"help" ignored;
+  "help"-without-mention ignored; mention-of-someone-else ignored; a
+  real case-insensitive match replies; no-op when `bot.you` isn't set
+  yet). `ethereumPrice.test.ts` mocks `globalThis.fetch` rather than a
+  real network call, and gained cases for its self-message-ignored
+  bugfix (still replies to the same text from someone else, confirming
+  the guard is identity-based, not content-based). `logging.test.ts`
+  gained cases for its room-logging bugfix (room present vs. the
+  "default room" fallback).
 
 Tests that touch real files (`bot.test.ts`'s `authenticate` tests,
 `tokenCache.test.ts`) are careful never to write into the repo's own
@@ -436,11 +523,78 @@ real OS temp directories.
 - `jiti` (runtime) -- transpiles/`import()`s arbitrary `.ts` at runtime,
   for both the CLI's own bootstrap and user `handlers/*.ts` files, under
   either Bun or plain Node.
+- `@types/node` (runtime **dependency**, not dev -- see "TypeScript
+  packaging" below for why) -- pinned `^22.0.0` to match
+  `engines.node: ">=22"` rather than grabbing the newest major, so a
+  consumer's `tsc` doesn't see Node APIs that may not exist on their
+  actual (older-but-still->=22) runtime.
 - `@types/bun` (dev), `typescript@^7` (peer) -- unchanged from initial
   scaffold.
 - No other WebSocket library -- uses the global `WebSocket` (available
   natively in both Bun and Node >=22, hence the `engines.node: ">=22"`
   constraint in `package.json`).
+
+## TypeScript packaging (consumer-facing, found via real end-to-end testing)
+
+cassie-bot ships raw `.ts` source with no build/declaration step -- every
+file's internals are visible to, and type-checked by, any consumer whose
+`tsconfig.json` doesn't exclude `node_modules`. That surfaced three real
+gaps, all found and fixed via an actual hand-rolled consumer project
+(`../cassie-test`, a separate local directory symlinked into this repo's
+`node_modules` -- not part of this repo -- used specifically to catch
+this class of bug before publishing, since `bun test`/`tsc` from inside
+cassie-bot itself can't see it):
+
+- **`package.json` needs both `"main"` and `"types"`**, not just
+  `"module"`. `"module"` is a bundler-only convention (esbuild/Vite/
+  webpack read it to prefer ESM source); `tsc` itself never looks at it
+  for module resolution, only `"types"`/`"typings"` then `"main"`. A
+  consumer's `tsc` saw `@toastdriven/cassie-bot` as entirely unresolvable
+  until both were added, even though `jiti` (a bundler-like runtime
+  loader) resolved it fine the whole time -- the break was type-checking
+  only, never runtime.
+- **Internal relative imports use a literal `.js` extension, not `.ts`,
+  not extensionless** (`import { Config } from './config.js'` in a file
+  that is itself `.ts`). This looks wrong on first read but is the
+  TypeScript-sanctioned pattern for exactly this situation: under
+  `moduleResolution: "nodenext"`/`"node16"` (common in a strict consumer
+  tsconfig, not cassie-bot's own which uses `"bundler"`), `tsc` is
+  specifically designed to resolve a `./foo.js` specifier to a sibling
+  `./foo.ts` file. A literal `.ts` extension only type-checks under the
+  `allowImportingTsExtensions` flag, which lives in cassie-bot's own
+  tsconfig and is never inherited by a consumer -- so it looked right
+  from inside this repo and was silently broken for every consumer.
+  Verified resolving correctly under `tsc`, `jiti`, and `bun run`
+  directly (all three) before converting every internal import across
+  `bot.ts`, `cli.ts`, `handlerLoader.ts`, `index.ts`, `registry.ts`,
+  `types.ts`, and the three built-in handlers.
+- **`@types/node` must be a real `dependency`**, not `devDependency` --
+  a `devDependency` isn't installed at all for a downstream consumer, so
+  a consumer's `tsc` hit `Cannot find name 'process'`/`node:fs`/etc.
+  pointing at cassie-bot's own source. Verified via an actual
+  `npm pack` + fresh install in a scratch directory that npm correctly
+  hoists it to the consumer's own top-level `node_modules/@types/node`.
+
+**A related gotcha worth documenting for end users** (now in the
+README's "A note on TypeScript" section, under Quickstart): if a
+consumer's own `tsconfig.json` sets `"types": []` (TypeScript's
+"Node.js" quickstart template includes this, commented out, as a
+starting point -- `../cassie-test` hit this exact thing), that
+explicitly opts *out* of all ambient `@types/*` auto-inclusion, even
+ones that are genuinely installed. The fix is on the consumer's side
+(`"types": ["node"]`), not something cassie-bot can force from the
+dependency side -- a library can't inject ambient globals into a
+consumer that's explicitly opted out of them.
+
+Also fixed during the same pass, unrelated to the above but caught by
+the same real-consumer `tsc` run: four `exactOptionalPropertyTypes`
+mismatches in `bot.ts` (`mergeUser`'s `name`/`roles`, `RoomNotFoundError`
+room listing's `title`, `ctx.reply`'s `roomId`/`format`) -- all were
+building object literals that always assigned an optional key (possibly
+to `undefined`) instead of conditionally spreading it in only when
+defined. Invisible from inside cassie-bot (its own tsconfig doesn't set
+`exactOptionalPropertyTypes`), only surfaced once checked under a
+consumer tsconfig stricter than cassie-bot's own.
 
 ## Current state / what's genuinely still open
 
@@ -448,19 +602,17 @@ Everything in "Goal" above is implemented and tested, end to end. What's
 explicitly still unbuilt or deferred (don't assume these are done without
 checking the actual file):
 
-- **`rooms`** config field is parsed but never acted on -- no
-  `server.capabilities` check, no actual room join.
 - **`handlers: string[]`** config field is parsed but unused -- reserved
   for a future "named installed package" mechanism.
 - **Reconnect/liveness policy** -- no auto-reconnect at all; a dropped
   connection just stays dropped. No handling of `retry_after`-style
-  backoff.
+  backoff. Flagged by the project owner as the next thing to dig into.
 - **`signup` vs `auth` two-step flows** (Apron §3.2) -- not supported;
   `authenticate()` only ever validates against `serverInfo.auth`.
 - **`socket.onerror`** -- still a no-op by design (see above), not yet
   revisited.
 - **Package not actually published yet** -- metadata is in place
-  (`@toastdriven/cassie-bot`, version `0.1.0`, license, repo URL,
+  (`@toastdriven/cassie-bot`, version `0.2.0`, license, repo URL,
   `private` removed from `package.json`), but confirm with the project
   owner before running `npm publish` for real.
 

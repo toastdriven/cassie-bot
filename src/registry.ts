@@ -1,4 +1,4 @@
-import type { IHandlerOptions, IRegistry } from './interfaces';
+import type { IHandlerOptions, IRegistry } from './interfaces.js';
 
 interface RegistryEntry<T> {
   handler: T;

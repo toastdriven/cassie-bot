@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { Bot } from "./bot";
-import { Config } from "./config";
-import { loadHandlers } from "./handlerLoader";
+import { Bot } from "./bot.js";
+import { Config } from "./config.js";
+import { loadHandlers } from "./handlerLoader.js";
 
 // The actual `cassie-bot` executable (see package.json's "bin" field):
 // `cassie-bot --config ./bot.toml`. Everything here is orchestration --

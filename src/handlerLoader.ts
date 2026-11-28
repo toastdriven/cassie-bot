@@ -1,10 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createJiti } from "jiti";
-import type { Bot } from "./bot";
-import helpHandler from "./handlers/help";
-import ethereumPriceHandler from "./handlers/ethereumPrice";
-import loggingHandler from "./handlers/logging";
+import type { Bot } from "./bot.js";
+import helpHandler from "./handlers/help.js";
+import ethereumPriceHandler from "./handlers/ethereumPrice.js";
+import loggingHandler from "./handlers/logging.js";
 
 // Built-in handlers, shipped inside cassie-bot itself. Default-on; a name
 // in Config.disabled skips it. Not loaded from disk like a user's

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { parse } from "smol-toml";
 
 export class Config {
@@ -45,8 +46,18 @@ export class Config {
   // auto-reconnect after a `denied` error, wait out `retry_after` before
   // reconnecting (§1.1).
 
+  // Resolved to an absolute path immediately -- tokenCache.ts and
+  // handlerLoader.ts both derive paths from `dirname(configPath)` via
+  // `path.join`, which silently collapses a relative `dirname` like "."
+  // and produces a bare specifier (e.g. "handlers/foo.ts") instead of a
+  // relative one ("./handlers/foo.ts") -- jiti/Node then resolve that as
+  // a node_modules package name, not a filesystem path, and fail with a
+  // confusing "Cannot find module" error. Resolving here, once, against
+  // process.cwd() at construction time (matching how a relative
+  // `--config` argument is actually interpreted) avoids that regardless
+  // of which directory the CLI happens to be invoked from.
   constructor(configPath: string) {
-    this.configPath = configPath;
+    this.configPath = resolve(configPath);
   }
 
   // Reads and parses a TOML config file, and returns a new, populated
