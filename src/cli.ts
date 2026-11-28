@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Bot } from "./bot.js";
+import { VERSION } from './constants.js';
 import { Config } from "./config.js";
 import { loadHandlers } from "./handlerLoader.js";
 
@@ -37,7 +38,7 @@ export async function main(): Promise<void> {
   await bot.authenticate();
   await bot.postConnect();
 
-  console.log(`cassie-bot: connected to ${config.serverUri} as ${bot.you?.userId ?? "(unknown)"}`);
+  console.log(`cassie-bot (v${VERSION}): connected to ${config.serverUri} as ${bot.you?.userId ?? "(unknown)"}`);
 
   // Keep the process alive -- there's nothing left to await; the bot now
   // runs entirely off the socket's own message events. Shutdown is via
